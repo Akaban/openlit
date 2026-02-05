@@ -727,7 +727,7 @@ def process_workflow_request(
         SemanticConvention.GEN_AI_WORKFLOW_OPERATION_SUCCESS, response is not None
     )
 
-    # Capture session_id and run_id from response
+    # Capture session_id, run_id, and session_state from response (workflow output)
     if response is not None:
         if hasattr(response, "session_id") and response.session_id:
             span.set_attribute(
@@ -737,13 +737,22 @@ def process_workflow_request(
             span.set_attribute(
                 SemanticConvention.GEN_AI_WORKFLOW_RUN_ID, response.run_id
             )
+        if hasattr(response, "session_state") and response.session_state:
+            try:
+                session_state_str = json.dumps(response.session_state, default=str)[:2000]
+                span.set_attribute(
+                    SemanticConvention.GEN_AI_WORKFLOW_OUTPUT, session_state_str
+                )
+            except Exception:
+                pass
 
-    # Capture session_state from workflow instance
-    if hasattr(instance, "session_state") and instance.session_state:
+    # Capture initial session_state from kwargs as workflow input
+    init_session_state = kwargs.get("session_state")
+    if init_session_state and isinstance(init_session_state, dict):
         try:
-            session_state_str = json.dumps(instance.session_state, default=str)[:2000]
+            init_session_state_str = json.dumps(init_session_state, default=str)[:2000]
             span.set_attribute(
-                SemanticConvention.GEN_AI_WORKFLOW_SESSION_STATE, session_state_str
+                SemanticConvention.GEN_AI_WORKFLOW_INPUT, init_session_state_str
             )
         except Exception:
             pass
