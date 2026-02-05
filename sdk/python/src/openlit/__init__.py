@@ -22,6 +22,7 @@ from openlit.otel.tracing import setup_tracing
 from openlit.otel.metrics import setup_meter
 from openlit.otel.events import setup_events
 from openlit.__helpers import fetch_pricing_info, get_env_variable
+from openlit.langfuse_compat import wrap_tracer_for_langfuse
 from openlit._instrumentors import MODULE_NAME_MAP, get_all_instrumentors
 
 # Import GPU instrumentor separately as it doesn't follow the standard pattern
@@ -216,6 +217,7 @@ def init(
     collect_gpu_stats=False,
     detailed_tracing=True,
     collect_system_metrics=False,
+    langfuse_compat=False,
 ):
     """
     Initializes the openLIT configuration and setups tracing.
@@ -239,6 +241,8 @@ def init(
         collect_gpu_stats (bool): Flag to enable or disable GPU metrics collection.
         detailed_tracing (bool): Enable detailed component-level tracing for debugging and optimization.
                                 Defaults to False to use workflow-level tracing with minimal storage overhead.
+        langfuse_compat (bool): Enable Langfuse metadata compatibility. When True, duplicates OTel
+                               semconv attributes as langfuse.observation.metadata.* attributes.
     """
     disabled_instrumentors = disabled_instrumentors if disabled_instrumentors else []
     logger.info("Starting openLIT initialization...")
@@ -322,6 +326,10 @@ def init(
         if not tracer:
             logger.error("OpenLIT tracing setup failed. Tracing will not be available.")
             return
+
+        # Wrap tracer for Langfuse compatibility
+        if tracer and langfuse_compat:
+            tracer = wrap_tracer_for_langfuse(tracer)
 
         # Setup events based on the provided or default configuration.
         event_provider = setup_events(
