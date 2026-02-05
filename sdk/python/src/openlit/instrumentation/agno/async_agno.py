@@ -723,70 +723,32 @@ def async_workflow_run_wrap(
     """
     Wrap Agno Workflow async run method for workflow execution tracing.
 
-    In Agno 2.2+, workflow.arun() returns an async iterator instead of a coroutine.
-    This wrapper handles both patterns for backward compatibility.
+    In Agno 2.2+, workflow.arun() returns an async iterator when stream=True (default),
+    or a coroutine when stream=False. This wrapper handles both patterns correctly.
     """
 
-    async def wrapper(wrapped, instance, args, kwargs):
+    async def streaming_wrapper(wrapped, instance, args, kwargs):
+        """Async generator wrapper for streaming mode."""
         workflow_name = getattr(instance, "name", "unknown_workflow")
         span_name = f"workflow {workflow_name}"
 
         with tracer.start_as_current_span(span_name, kind=SpanKind.CLIENT) as span:
             start_time = time.time()
-
-            # Call the wrapped function to get the result
             result = wrapped(*args, **kwargs)
 
-            # Check if result is an async iterator (Agno 2.2+)
-            if hasattr(result, "__aiter__"):
-                # Handle async iterator - stream events and collect final response
+            try:
+                final_response = None
+                async for event in result:
+                    final_response = event
+                    yield event
+
                 try:
-                    final_response = None
-                    async for event in result:
-                        final_response = event
-                        yield event
-
-                    # Process the final response for telemetry
-                    try:
-                        process_workflow_request(
-                            span,
-                            instance,
-                            args,
-                            kwargs,
-                            final_response,
-                            start_time,
-                            pricing_info,
-                            environment,
-                            application_name,
-                            metrics,
-                            capture_message_content,
-                            disable_metrics,
-                            version,
-                        )
-                        span.set_status(Status(StatusCode.OK))
-                    except Exception as e:
-                        handle_exception(span, e)
-                        logger.error(
-                            "Error in async workflow run trace creation: %s", e
-                        )
-
-                except Exception as e:
-                    handle_exception(span, e)
-                    logger.error("Error in async workflow run iteration: %s", e)
-                    raise
-            else:
-                # Legacy coroutine pattern (pre-Agno 2.2)
-                # Await the result and yield it as a single item
-                try:
-                    response = await result
-
-                    # Process request using utils function with ALL attributes from semcov
                     process_workflow_request(
                         span,
                         instance,
                         args,
                         kwargs,
-                        response,
+                        final_response,
                         start_time,
                         pricing_info,
                         environment,
@@ -797,14 +759,59 @@ def async_workflow_run_wrap(
                         version,
                     )
                     span.set_status(Status(StatusCode.OK))
-
                 except Exception as e:
                     handle_exception(span, e)
-                    logger.error("Error in async workflow run trace creation: %s", e)
-                    raise
+                    logger.error(
+                        "Error in async workflow run trace creation: %s", e
+                    )
 
-                # Yield the single response to maintain generator contract
-                yield response
+            except Exception as e:
+                handle_exception(span, e)
+                logger.error("Error in async workflow run iteration: %s", e)
+                raise
+
+    async def non_streaming_wrapper(wrapped, instance, args, kwargs):
+        """Coroutine wrapper for non-streaming mode (stream=False)."""
+        workflow_name = getattr(instance, "name", "unknown_workflow")
+        span_name = f"workflow {workflow_name}"
+
+        with tracer.start_as_current_span(span_name, kind=SpanKind.CLIENT) as span:
+            start_time = time.time()
+
+            try:
+                response = await wrapped(*args, **kwargs)
+
+                process_workflow_request(
+                    span,
+                    instance,
+                    args,
+                    kwargs,
+                    response,
+                    start_time,
+                    pricing_info,
+                    environment,
+                    application_name,
+                    metrics,
+                    capture_message_content,
+                    disable_metrics,
+                    version,
+                )
+                span.set_status(Status(StatusCode.OK))
+
+                return response
+
+            except Exception as e:
+                handle_exception(span, e)
+                logger.error("Error in async workflow run trace creation: %s", e)
+                raise
+
+    def wrapper(wrapped, instance, args, kwargs):
+        """Dispatch to streaming or non-streaming wrapper based on stream kwarg."""
+        stream = kwargs.get("stream", True)
+        if stream:
+            return streaming_wrapper(wrapped, instance, args, kwargs)
+        else:
+            return non_streaming_wrapper(wrapped, instance, args, kwargs)
 
     return wrapper
 
