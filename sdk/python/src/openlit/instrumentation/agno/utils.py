@@ -3,6 +3,7 @@ Utility functions for Agno instrumentation following OpenLIT patterns.
 """
 
 import importlib
+import json
 import logging
 import time
 from openlit.__helpers import (
@@ -725,6 +726,27 @@ def process_workflow_request(
     span.set_attribute(
         SemanticConvention.GEN_AI_WORKFLOW_OPERATION_SUCCESS, response is not None
     )
+
+    # Capture session_id and run_id from response
+    if response is not None:
+        if hasattr(response, "session_id") and response.session_id:
+            span.set_attribute(
+                SemanticConvention.GEN_AI_WORKFLOW_SESSION_ID, response.session_id
+            )
+        if hasattr(response, "run_id") and response.run_id:
+            span.set_attribute(
+                SemanticConvention.GEN_AI_WORKFLOW_RUN_ID, response.run_id
+            )
+
+    # Capture session_state from workflow instance
+    if hasattr(instance, "session_state") and instance.session_state:
+        try:
+            session_state_str = json.dumps(instance.session_state, default=str)[:2000]
+            span.set_attribute(
+                SemanticConvention.GEN_AI_WORKFLOW_SESSION_STATE, session_state_str
+            )
+        except Exception:
+            pass
 
 
 def process_team_request(
