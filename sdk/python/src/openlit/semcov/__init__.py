@@ -1016,6 +1016,9 @@ class SemanticConvention:
     GEN_AI_WORKFLOW_DESCRIPTION = "gen_ai.workflow.description"
     GEN_AI_WORKFLOW_EXECUTION_DURATION = "gen_ai.workflow.execution.duration"
     GEN_AI_WORKFLOW_OPERATION_SUCCESS = "gen_ai.workflow.operation.success"
+    GEN_AI_WORKFLOW_SESSION_STATE = "gen_ai.workflow.session_state"
+    GEN_AI_WORKFLOW_SESSION_ID = "gen_ai.workflow.session_id"
+    GEN_AI_WORKFLOW_RUN_ID = "gen_ai.workflow.run_id"
 
     # Team operation attributes (additional ones not already covered above)
     GEN_AI_TEAM_NAME = "gen_ai.team.name"
