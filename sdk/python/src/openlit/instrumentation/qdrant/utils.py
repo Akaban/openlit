@@ -47,6 +47,44 @@ def object_count(obj):
         return 0
 
 
+def format_query_response(response):
+    """
+    Format query response as JSON string of points.
+    """
+    import json
+
+    if response is None:
+        return ""
+
+    # Handle QueryResponse (has .points)
+    points = getattr(response, "points", None)
+    if points is None:
+        if isinstance(response, list):
+            points = response
+        else:
+            return ""
+
+    if not points:
+        return "[]"
+
+    # Convert points to serializable format
+    points_data = []
+    for point in points:
+        point_dict = {}
+        if hasattr(point, "id"):
+            point_dict["id"] = point.id
+        if hasattr(point, "score"):
+            point_dict["score"] = point.score
+        if hasattr(point, "payload"):
+            point_dict["payload"] = point.payload
+        if hasattr(point, "vector"):
+            # Skip vectors - too large
+            pass
+        points_data.append(point_dict)
+
+    return json.dumps(points_data, default=str)
+
+
 def format_query_points_ast(query, prefetch):
     """
     Format query_points call as AST-like representation.
@@ -75,7 +113,7 @@ def format_query_points_ast(query, prefetch):
         if hasattr(pf, "using"):
             pf_using = pf.using
             pf_limit = pf.limit
-            pf_filter = pf.filter
+            pf_filter = getattr(pf, "filter", None)
         elif isinstance(pf, dict):
             pf_using = pf.get("using")
             pf_limit = pf.get("limit")
@@ -448,13 +486,12 @@ def common_qdrant_logic(
             elif prefetch_filters:
                 scope._span.set_attribute(SemanticConvention.DB_FILTER, "; ".join(prefetch_filters)[:500])
 
-            summary = f"{scope._db_operation} {collection_name} limit={limit}"
-            if using:
-                summary += f" using={using}"
-            if prefetch:
-                summary += f" prefetch_count={object_count(prefetch)}"
-
-            scope._span.set_attribute(SemanticConvention.DB_QUERY_SUMMARY, summary)
+            # Capture response output
+            if scope._response:
+                response_output = format_query_response(scope._response)
+                scope._span.set_attribute(SemanticConvention.DB_RESPONSE_RETURNED_ROWS,
+                    len(getattr(scope._response, "points", []) or []))
+                scope._span.set_attribute("db.response.output", response_output)
 
         elif endpoint in ["qdrant.query", "qdrant.query_batch"]:
             query_text = scope._kwargs.get("query_text", "")
@@ -469,10 +506,12 @@ def common_qdrant_logic(
             if query_filter:
                 scope._span.set_attribute(SemanticConvention.DB_FILTER, str(query_filter)[:500])
 
-            scope._span.set_attribute(
-                SemanticConvention.DB_QUERY_SUMMARY,
-                f"{scope._db_operation} {collection_name} limit={limit}",
-            )
+            # Capture response output
+            if scope._response:
+                response_output = format_query_response(scope._response)
+                scope._span.set_attribute(SemanticConvention.DB_RESPONSE_RETURNED_ROWS,
+                    len(getattr(scope._response, "points", []) or []))
+                scope._span.set_attribute("db.response.output", response_output)
 
     # Handle index operations
     elif scope._db_operation == SemanticConvention.DB_OPERATION_CREATE_INDEX:
