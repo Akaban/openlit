@@ -47,6 +47,63 @@ def object_count(obj):
         return 0
 
 
+def format_query_points_ast(query, prefetch):
+    """
+    Format query_points call as AST-like representation.
+    Returns (query_text, filters_list).
+
+    Example output: "RRF([Prefetch(using=gemini-embedding-001, limit=150), Prefetch(using=bm25, limit=150)])"
+    """
+    filters = []
+
+    # Get fusion type from query
+    fusion_type = None
+    if hasattr(query, "fusion"):
+        fusion_obj = query.fusion
+        fusion_type = fusion_obj.name if hasattr(fusion_obj, "name") else str(fusion_obj).split(".")[-1].rstrip("'>")
+    elif isinstance(query, dict) and "fusion" in query:
+        fusion_type = str(query["fusion"])
+
+    if not prefetch:
+        return str(query)[:500], filters
+
+    prefetch_list = prefetch if isinstance(prefetch, list) else [prefetch]
+    prefetch_parts = []
+
+    for pf in prefetch_list:
+        # Extract attributes (handle both objects and dicts)
+        if hasattr(pf, "using"):
+            pf_using = pf.using
+            pf_limit = pf.limit
+            pf_filter = pf.filter
+        elif isinstance(pf, dict):
+            pf_using = pf.get("using")
+            pf_limit = pf.get("limit")
+            pf_filter = pf.get("filter")
+        else:
+            continue
+
+        # Build prefetch representation
+        pf_args = []
+        if pf_using:
+            pf_args.append(f"using={pf_using}")
+        if pf_limit:
+            pf_args.append(f"limit={pf_limit}")
+        if pf_filter:
+            filters.append(str(pf_filter))
+            pf_args.append("filter=...")
+
+        prefetch_parts.append(f"Prefetch({', '.join(pf_args)})")
+
+    # Format as AST: RRF([Prefetch(...), Prefetch(...)])
+    if fusion_type:
+        query_text = f"{fusion_type}([{', '.join(prefetch_parts)}])"
+    else:
+        query_text = f"[{', '.join(prefetch_parts)}]"
+
+    return query_text[:500], filters
+
+
 def set_server_address_and_port(instance):
     """
     Extracts server address and port from Qdrant client instance.
@@ -376,12 +433,20 @@ def common_qdrant_logic(
             limit = scope._kwargs.get("limit", 10)
             using = scope._kwargs.get("using", None)
             prefetch = scope._kwargs.get("prefetch", [])
+            query_filter = scope._kwargs.get("query_filter", None)
 
             scope._span.set_attribute(
                 SemanticConvention.DB_COLLECTION_NAME, collection_name
             )
-            scope._span.set_attribute(SemanticConvention.DB_QUERY_TEXT, str(query)[:500])
+
+            query_text, prefetch_filters = format_query_points_ast(query, prefetch)
+            scope._span.set_attribute(SemanticConvention.DB_QUERY_TEXT, query_text)
             scope._span.set_attribute(SemanticConvention.DB_VECTOR_QUERY_TOP_K, limit)
+
+            if query_filter:
+                scope._span.set_attribute(SemanticConvention.DB_FILTER, str(query_filter)[:500])
+            elif prefetch_filters:
+                scope._span.set_attribute(SemanticConvention.DB_FILTER, "; ".join(prefetch_filters)[:500])
 
             summary = f"{scope._db_operation} {collection_name} limit={limit}"
             if using:
