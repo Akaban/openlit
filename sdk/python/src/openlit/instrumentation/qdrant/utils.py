@@ -28,10 +28,11 @@ DB_OPERATION_MAP = {
     "qdrant.clear_payload": SemanticConvention.DB_OPERATION_DELETE,
     "qdrant.retrieve": SemanticConvention.DB_OPERATION_GET,
     "qdrant.scroll": SemanticConvention.DB_OPERATION_GET,
-    "qdrant.search": SemanticConvention.DB_OPERATION_GET,
-    "qdrant.search_groups": SemanticConvention.DB_OPERATION_GET,
-    "qdrant.recommend": SemanticConvention.DB_OPERATION_GET,
+    "qdrant.query": SemanticConvention.DB_OPERATION_GET,
+    "qdrant.query_batch": SemanticConvention.DB_OPERATION_GET,
     "qdrant.query_points": SemanticConvention.DB_OPERATION_GET,
+    "qdrant.query_batch_points": SemanticConvention.DB_OPERATION_GET,
+    "qdrant.query_points_groups": SemanticConvention.DB_OPERATION_GET,
     "qdrant.create_payload_index": SemanticConvention.DB_OPERATION_CREATE_INDEX,
 }
 
@@ -370,17 +371,42 @@ def common_qdrant_logic(
                 f"negative={object_count(negative)}",
             )
 
-        elif endpoint == "qdrant.query_points":
+        elif endpoint in ["qdrant.query_points", "qdrant.query_batch_points", "qdrant.query_points_groups"]:
             query = scope._kwargs.get("query", {})
+            limit = scope._kwargs.get("limit", 10)
+            using = scope._kwargs.get("using", None)
+            prefetch = scope._kwargs.get("prefetch", [])
 
             scope._span.set_attribute(
                 SemanticConvention.DB_COLLECTION_NAME, collection_name
             )
-            scope._span.set_attribute(SemanticConvention.DB_QUERY_TEXT, str(query))
+            scope._span.set_attribute(SemanticConvention.DB_QUERY_TEXT, str(query)[:500])
+            scope._span.set_attribute(SemanticConvention.DB_VECTOR_QUERY_TOP_K, limit)
+
+            summary = f"{scope._db_operation} {collection_name} limit={limit}"
+            if using:
+                summary += f" using={using}"
+            if prefetch:
+                summary += f" prefetch_count={object_count(prefetch)}"
+
+            scope._span.set_attribute(SemanticConvention.DB_QUERY_SUMMARY, summary)
+
+        elif endpoint in ["qdrant.query", "qdrant.query_batch"]:
+            query_text = scope._kwargs.get("query_text", "")
+            limit = scope._kwargs.get("limit", 10)
+            query_filter = scope._kwargs.get("query_filter", None)
+
+            scope._span.set_attribute(
+                SemanticConvention.DB_COLLECTION_NAME, collection_name
+            )
+            scope._span.set_attribute(SemanticConvention.DB_QUERY_TEXT, str(query_text)[:500])
+            scope._span.set_attribute(SemanticConvention.DB_VECTOR_QUERY_TOP_K, limit)
+            if query_filter:
+                scope._span.set_attribute(SemanticConvention.DB_FILTER, str(query_filter)[:500])
 
             scope._span.set_attribute(
                 SemanticConvention.DB_QUERY_SUMMARY,
-                f"{scope._db_operation} {collection_name} query={query}",
+                f"{scope._db_operation} {collection_name} limit={limit}",
             )
 
     # Handle index operations
