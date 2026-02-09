@@ -9,6 +9,10 @@ and automatically add Langfuse-compatible metadata attributes.
 import json
 from contextlib import contextmanager
 
+from opentelemetry import trace as trace_api
+from opentelemetry.trace import INVALID_SPAN_CONTEXT
+from opentelemetry.trace.span import NonRecordingSpan
+
 
 # Maps to langfuse.observation.input (combined as JSON object)
 LANGFUSE_INPUT_MAP = {
@@ -119,12 +123,23 @@ class LangfuseCompatSpan:
 class LangfuseCompatTracer:
     """Wraps an OTel tracer to return Langfuse-compatible spans."""
 
-    def __init__(self, tracer):
+    def __init__(self, tracer, suppress_root_spans=True):
         self._tracer = tracer
+        self._suppress_root_spans = suppress_root_spans
+
+    def _is_root(self):
+        """Check if the current context has no valid parent span."""
+        return not trace_api.get_current_span().get_span_context().is_valid
 
     @contextmanager
     def start_as_current_span(self, name, **kwargs):
         """Start a span and wrap it with Langfuse compatibility."""
+        if self._suppress_root_spans and self._is_root():
+            noop_span = NonRecordingSpan(INVALID_SPAN_CONTEXT)
+            with trace_api.use_span(noop_span, end_on_exit=False):
+                yield LangfuseCompatSpan(noop_span)
+            return
+
         with self._tracer.start_as_current_span(name, **kwargs) as span:
             wrapped = LangfuseCompatSpan(span)
             try:
@@ -134,6 +149,9 @@ class LangfuseCompatTracer:
 
     def start_span(self, name, **kwargs):
         """Start a span and wrap it with Langfuse compatibility."""
+        if self._suppress_root_spans and self._is_root():
+            return LangfuseCompatSpan(NonRecordingSpan(INVALID_SPAN_CONTEXT))
+
         span = self._tracer.start_span(name, **kwargs)
         return LangfuseCompatSpan(span)
 
@@ -142,9 +160,9 @@ class LangfuseCompatTracer:
         return getattr(self._tracer, name)
 
 
-def wrap_tracer_for_langfuse(tracer):
+def wrap_tracer_for_langfuse(tracer, suppress_root_spans=True):
     """Wrap a tracer with Langfuse-compatible metadata augmentation."""
     if tracer is None:
         raise ValueError("tracer cannot be None")
 
-    return LangfuseCompatTracer(tracer)
+    return LangfuseCompatTracer(tracer, suppress_root_spans=suppress_root_spans)
