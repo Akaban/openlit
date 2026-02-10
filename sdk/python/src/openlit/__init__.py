@@ -352,21 +352,24 @@ def init(
             logger.error("OpenLIT events setup failed. Events will not be available")
 
         # Setup meter and receive metrics_dict instead of meter.
-        metrics_dict, err = setup_meter(
-            application_name=final_service_name,
-            environment=environment,
-            meter=meter,
-            otlp_endpoint=otlp_endpoint,
-            otlp_headers=otlp_headers,
-        )
-
-        if err:
-            logger.error(
-                "OpenLIT metrics setup failed. Metrics will not be available: %s", err
-            )
-            # Set metrics_dict to None and disable metrics instead of returning early
+        if disable_metrics:
             metrics_dict = None
-            disable_metrics = True
+        else:
+            metrics_dict, err = setup_meter(
+                application_name=final_service_name,
+                environment=environment,
+                meter=meter,
+                otlp_endpoint=otlp_endpoint,
+                otlp_headers=otlp_headers,
+            )
+
+            if err:
+                logger.error(
+                    "OpenLIT metrics setup failed. Metrics will not be available: %s", err
+                )
+                # Set metrics_dict to None and disable metrics instead of returning early
+                metrics_dict = None
+                disable_metrics = True
 
         if (
             os.getenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "").lower()
