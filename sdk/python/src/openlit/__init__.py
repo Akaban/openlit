@@ -218,6 +218,7 @@ def init(
     detailed_tracing=True,
     collect_system_metrics=False,
     langfuse_compat=False,
+    disabled=False,
 ):
     """
     Initializes the openLIT configuration and setups tracing.
@@ -243,7 +244,13 @@ def init(
                                 Defaults to False to use workflow-level tracing with minimal storage overhead.
         langfuse_compat (bool): Enable Langfuse metadata compatibility. When True, duplicates OTel
                                semconv attributes as langfuse.observation.metadata.* attributes.
+        disabled (bool): If True, skip all initialization entirely. Useful for
+                         environments where tracing is not needed (e.g. indexing tasks).
     """
+    if disabled:
+        logger.info("OpenLIT initialization skipped (disabled=True)")
+        return
+
     disabled_instrumentors = disabled_instrumentors if disabled_instrumentors else []
     logger.info("Starting openLIT initialization...")
 
